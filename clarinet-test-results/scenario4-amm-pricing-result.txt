@@ -1,0 +1,465 @@
+>> ;; ============================================================================
+>> ;; SCENARIO 4: AMM PRICING & VIRTUAL LIQUIDITY
+>> ;; Tests constant-product formula, price impact, and liquidity mechanics
+>> ;; ============================================================================
+>>
+>> ;; Setup
+>> (contract-call? .sbtc-token transfer u1000000000 tx-sender 'ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5 none)
+>> (contract-call? .sbtc-token transfer u1000000000 tx-sender 'ST2CY5V39NHDPWSXMW9QDT3HC3GD6Q6XX4CFRK9AG none)
+>> (contract-call? .sbtc-token transfer u1000000000 tx-sender 'ST2JHG361ZXG51QTKY2NQCVBPPRRE2KZB1HR05NNC none)
+>>
+>> ;; ============================================================================
+>> ;; TEST 1: Initial Market State (50/50 pricing)
+>> ;; ============================================================================
+>>
+>> ;; Create market with 10M sats virtual liquidity
+>> ;; 10 million sats virtual liquidity, 0.3% fee
+>> (contract-call? .sbtcmarket-v0 create-market
+>>   "AMM Test Market"
+>>   u1000000
+>>   0x0000000000000000000000000000000000000000000000000000000000000000
+>>   10000000000000
+>>   u10000000
+>>   u30
+>>   u"GE"
+>> )
+>>
+>> ;; Check initial state
+>> (contract-call? .sbtcmarket-v0 get-market u1)
+>> ;; Expected: price-yes = u10000000, price-no = u10000000 (equal reserves = 50/50 odds)
+>>
+>> ;; ============================================================================
+>> ;; TEST 2: Small Buy - Minimal Price Impact
+>> ;; ============================================================================
+>>
+>> ::set_tx_sender ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5
+>>
+>> ;; Buy YES with small amount (0.1% of liquidity)
+>> (contract-call? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sbtcmarket-v0 buy-shares u1 true u10000)
+>>
+>> ;; Check market state after small buy
+>> (contract-call? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sbtcmarket-v0 get-market u1)
+>> ;; Expected: price-yes slightly > u10000000, price-no slightly < u10000000
+>>
+>> ;; Check shares received
+>> (contract-call? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sbtcmarket-v0 get-balance u1 'ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5 true)
+>> ;; Should be close to u10000 (minus small slippage and fees)
+>>
+>> ;; ============================================================================
+>> ;; TEST 3: Large Buy - Significant Price Impact
+>> ;; ============================================================================
+>>
+>> ::set_tx_sender ST2CY5V39NHDPWSXMW9QDT3HC3GD6Q6XX4CFRK9AG
+>>
+>> ;; Buy YES with large amount (10% of liquidity)
+>> (contract-call? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sbtcmarket-v0 buy-shares u1 true u1000000)
+>>
+>> ;; Check market state after large buy
+>> (contract-call? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sbtcmarket-v0 get-market u1)
+>> ;; Expected: price-yes >> price-no (YES more expensive now)
+>>
+>> ;; Check shares received (should show slippage)
+>> (contract-call? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sbtcmarket-v0 get-balance u1 'ST2CY5V39NHDPWSXMW9QDT3HC3GD6Q6XX4CFRK9AG true)
+>> ;; Should be less than u1000000 due to slippage
+>>
+>> ;; ============================================================================
+>> ;; TEST 4: Opposite Side Buy (Price Rebalancing)
+>> ;; ============================================================================
+>>
+>> ::set_tx_sender ST2JHG361ZXG51QTKY2NQCVBPPRRE2KZB1HR05NNC
+>>
+>> ;; Now buy NO to push price back
+>> (contract-call? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sbtcmarket-v0 buy-shares u1 false u1000000)
+>>
+>> ;; Check market state (should be more balanced now)
+>> (contract-call? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sbtcmarket-v0 get-market u1)
+>> ;; Expected: price-yes and price-no closer together
+>>
+>> ;; ============================================================================
+>> ;; TEST 5: Mint Complete Set (No Price Impact)
+>> ;; ============================================================================
+>>
+>> ::set_tx_sender ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5
+>>
+>> ;; Mint complete set (creates equal YES/NO, no AMM interaction)
+>> (contract-call? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sbtcmarket-v0 mint-complete-set u1 u50000)
+>>
+>> ;; Check market state (reserves should be unchanged)
+>> (contract-call? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sbtcmarket-v0 get-market u1)
+>> ;; Expected: price-yes and price-no unchanged (no AMM impact)
+>>
+>> ;; Check balances
+>> (contract-call? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sbtcmarket-v0 get-balance u1 'ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5 true)
+>> (contract-call? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sbtcmarket-v0 get-balance u1 'ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5 false)
+>> ;; Expected: Both increased by exactly u50000
+>>
+>> ;; ============================================================================
+>> ;; TEST 6: Direct Swap (Price Impact)
+>> ;; ============================================================================
+>>
+>> ;; Now swap some NO for YES (this DOES impact price)
+>> (contract-call? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sbtcmarket-v0 swap-shares u1 false u25000)
+>>
+>> ;; Check market state (reserves should have changed)
+>> (contract-call? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sbtcmarket-v0 get-market u1)
+>> ;; Expected: price-yes increased, price-no decreased
+>>
+>> ;; Check balances after swap
+>> (contract-call? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sbtcmarket-v0 get-balance u1 'ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5 true)
+>> (contract-call? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sbtcmarket-v0 get-balance u1 'ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5 false)
+>> ;; Expected: YES up, NO down (with slippage)
+>>
+>> ;; ============================================================================
+>> ;; TEST 7: Burn Complete Set (No Price Impact)
+>> ;; ============================================================================
+>>
+>> ;; Burn remaining complete set
+>> (contract-call? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sbtcmarket-v0 burn-complete-set u1 u20000)
+>>
+>> ;; Check market state (reserves should be unchanged)
+>> (contract-call? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sbtcmarket-v0 get-market u1)
+>> ;; Expected: price-yes and price-no unchanged
+>>
+>> ;; ============================================================================
+>> ;; TEST 8: Verify Constant Product (x * y = k)
+>> ;; ============================================================================
+>>
+>> ;; Get final market state
+>> (contract-call? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sbtcmarket-v0 get-market u1)
+>> ;; Manually verify: price-yes * price-no should approximately equal virtual-liquidity^2
+>> ;; Note: Will vary slightly due to trades, but should maintain constant product
+>>
+>> ;; ============================================================================
+>> ;; OBSERVATIONS
+>> ;; ============================================================================
+>>
+>> ;; 1. Small trades (~0.1% of liquidity): Minimal price impact
+>> ;; 2. Large trades (~10% of liquidity): Significant price impact (slippage)
+>> ;; 3. Opposite side trades: Rebalance pricing
+>> ;; 4. Complete set operations: No price impact (bypass AMM)
+>> ;; 5. Direct swaps: Direct price impact via AMM
+>> ;; 6. Constant product formula: x * y ~ k (virtual-liquidity^2)
+note: using deployments/default.simnet-plan.yaml
+clarity-repl v3.7.0
+Enter "::help" for usage hints.
+Connected to a transient in-memory database.
++---------------------------------------------------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| Contract identifier                                                 | Public functions                                                                                                                                                                                                                                                                                                                                  |
+|---------------------------------------------------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pyth-governance-v3        | (check-execution-flow                                                                                                                                                                                                                                                                                                                             |
+|                                                                     |     (former-contract-caller principal)                                                                                                                                                                                                                                                                                                            |
+|                                                                     |     (execution-plan-opt (optional (tuple (pyth-decoder-contract <ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pyth-traits-v2.decoder-trait>) (pyth-storage-contract <ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pyth-traits-v2.storage-trait>) (wormhole-core-contract <ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.wormhole-traits-v2.core-trait>))))) |
+|                                                                     | (check-storage-contract (storage-contract <ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pyth-traits-v2.storage-trait>))                                                                                                                                                                                                                              |
+|                                                                     | (get-authorized-prices-data-sources)                                                                                                                                                                                                                                                                                                              |
+|                                                                     | (get-current-execution-plan)                                                                                                                                                                                                                                                                                                                      |
+|                                                                     | (get-fee-info)                                                                                                                                                                                                                                                                                                                                    |
+|                                                                     | (get-stale-price-threshold)                                                                                                                                                                                                                                                                                                                       |
+|                                                                     | (update-fee-recipient-address                                                                                                                                                                                                                                                                                                                     |
+|                                                                     |     (vaa-bytes (buff 8192))                                                                                                                                                                                                                                                                                                                       |
+|                                                                     |     (wormhole-core-contract <ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.wormhole-traits-v2.core-trait>))                                                                                                                                                                                                                                           |
+|                                                                     | (update-fee-value                                                                                                                                                                                                                                                                                                                                 |
+|                                                                     |     (vaa-bytes (buff 8192))                                                                                                                                                                                                                                                                                                                       |
+|                                                                     |     (wormhole-core-contract <ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.wormhole-traits-v2.core-trait>))                                                                                                                                                                                                                                           |
+|                                                                     | (update-governance-data-source                                                                                                                                                                                                                                                                                                                    |
+|                                                                     |     (vaa-bytes (buff 8192))                                                                                                                                                                                                                                                                                                                       |
+|                                                                     |     (wormhole-core-contract <ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.wormhole-traits-v2.core-trait>))                                                                                                                                                                                                                                           |
+|                                                                     | (update-prices-data-sources                                                                                                                                                                                                                                                                                                                       |
+|                                                                     |     (vaa-bytes (buff 8192))                                                                                                                                                                                                                                                                                                                       |
+|                                                                     |     (wormhole-core-contract <ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.wormhole-traits-v2.core-trait>))                                                                                                                                                                                                                                           |
+|                                                                     | (update-pyth-decoder-contract                                                                                                                                                                                                                                                                                                                     |
+|                                                                     |     (vaa-bytes (buff 8192))                                                                                                                                                                                                                                                                                                                       |
+|                                                                     |     (wormhole-core-contract <ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.wormhole-traits-v2.core-trait>))                                                                                                                                                                                                                                           |
+|                                                                     | (update-pyth-oracle-contract                                                                                                                                                                                                                                                                                                                      |
+|                                                                     |     (vaa-bytes (buff 8192))                                                                                                                                                                                                                                                                                                                       |
+|                                                                     |     (wormhole-core-contract <ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.wormhole-traits-v2.core-trait>))                                                                                                                                                                                                                                           |
+|                                                                     | (update-pyth-storage-contract                                                                                                                                                                                                                                                                                                                     |
+|                                                                     |     (vaa-bytes (buff 8192))                                                                                                                                                                                                                                                                                                                       |
+|                                                                     |     (wormhole-core-contract <ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.wormhole-traits-v2.core-trait>))                                                                                                                                                                                                                                           |
+|                                                                     | (update-stale-price-threshold                                                                                                                                                                                                                                                                                                                     |
+|                                                                     |     (vaa-bytes (buff 8192))                                                                                                                                                                                                                                                                                                                       |
+|                                                                     |     (wormhole-core-contract <ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.wormhole-traits-v2.core-trait>))                                                                                                                                                                                                                                           |
+|                                                                     | (update-wormhole-core-contract                                                                                                                                                                                                                                                                                                                    |
+|                                                                     |     (vaa-bytes (buff 8192))                                                                                                                                                                                                                                                                                                                       |
+|                                                                     |     (wormhole-core-contract <ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.wormhole-traits-v2.core-trait>))                                                                                                                                                                                                                                           |
+|---------------------------------------------------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pyth-oracle-v4            | (decode-price-feeds                                                                                                                                                                                                                                                                                                                               |
+|                                                                     |     (price-feed-bytes (buff 8192))                                                                                                                                                                                                                                                                                                                |
+|                                                                     |     (execution-plan (tuple (pyth-decoder-contract <ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pyth-traits-v2.decoder-trait>) (pyth-storage-contract <ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pyth-traits-v2.storage-trait>) (wormhole-core-contract <ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.wormhole-traits-v2.core-trait>))))                |
+|                                                                     | (get-price                                                                                                                                                                                                                                                                                                                                        |
+|                                                                     |     (price-feed-id (buff 32))                                                                                                                                                                                                                                                                                                                     |
+|                                                                     |     (pyth-storage-address <ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pyth-traits-v2.storage-trait>))                                                                                                                                                                                                                                              |
+|                                                                     | (read-price-feed                                                                                                                                                                                                                                                                                                                                  |
+|                                                                     |     (price-feed-id (buff 32))                                                                                                                                                                                                                                                                                                                     |
+|                                                                     |     (pyth-storage-address <ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pyth-traits-v2.storage-trait>))                                                                                                                                                                                                                                              |
+|                                                                     | (verify-and-update-price-feeds                                                                                                                                                                                                                                                                                                                    |
+|                                                                     |     (price-feed-bytes (buff 8192))                                                                                                                                                                                                                                                                                                                |
+|                                                                     |     (execution-plan (tuple (pyth-decoder-contract <ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pyth-traits-v2.decoder-trait>) (pyth-storage-contract <ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pyth-traits-v2.storage-trait>) (wormhole-core-contract <ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.wormhole-traits-v2.core-trait>))))                |
+|---------------------------------------------------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pyth-traits-v2            |                                                                                                                                                                                                                                                                                                                                                   |
+|---------------------------------------------------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sample-bonding-curve-dex  | (buy                                                                                                                                                                                                                                                                                                                                              |
+|                                                                     |     (token-trait <ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sip-010-trait-ft-standard.sip-010-trait>)                                                                                                                                                                                                                                             |
+|                                                                     |     (stx-amount uint))                                                                                                                                                                                                                                                                                                                            |
+|                                                                     | (get-buyable-tokens (stx-amount uint))                                                                                                                                                                                                                                                                                                            |
+|                                                                     | (get-sellable-stx (token-amount uint))                                                                                                                                                                                                                                                                                                            |
+|                                                                     | (get-tradable)                                                                                                                                                                                                                                                                                                                                    |
+|                                                                     | (sell                                                                                                                                                                                                                                                                                                                                             |
+|                                                                     |     (token-trait <ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sip-010-trait-ft-standard.sip-010-trait>)                                                                                                                                                                                                                                             |
+|                                                                     |     (tokens-in uint))                                                                                                                                                                                                                                                                                                                             |
+|---------------------------------------------------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sbtc-token                | (get-balance (owner principal))                                                                                                                                                                                                                                                                                                                   |
+|                                                                     | (get-decimals)                                                                                                                                                                                                                                                                                                                                    |
+|                                                                     | (get-name)                                                                                                                                                                                                                                                                                                                                        |
+|                                                                     | (get-symbol)                                                                                                                                                                                                                                                                                                                                      |
+|                                                                     | (get-token-uri)                                                                                                                                                                                                                                                                                                                                   |
+|                                                                     | (get-total-supply)                                                                                                                                                                                                                                                                                                                                |
+|                                                                     | (send-many (recipients (list 200 (tuple (amount uint) (memo (optional (buff 34))) (to principal)))))                                                                                                                                                                                                                                              |
+|                                                                     | (set-token-uri (value (string-utf8 256)))                                                                                                                                                                                                                                                                                                         |
+|                                                                     | (transfer                                                                                                                                                                                                                                                                                                                                         |
+|                                                                     |     (amount uint)                                                                                                                                                                                                                                                                                                                                 |
+|                                                                     |     (from principal)                                                                                                                                                                                                                                                                                                                              |
+|                                                                     |     (to principal)                                                                                                                                                                                                                                                                                                                                |
+|                                                                     |     (memo (optional (buff 34))))                                                                                                                                                                                                                                                                                                                  |
+|                                                                     | (transfer-ownership (new-owner principal))                                                                                                                                                                                                                                                                                                        |
+|---------------------------------------------------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sbtcmarket-v0             | (add-market-creator (creator principal))                                                                                                                                                                                                                                                                                                          |
+|                                                                     | (burn-complete-set                                                                                                                                                                                                                                                                                                                                |
+|                                                                     |     (market-id uint)                                                                                                                                                                                                                                                                                                                              |
+|                                                                     |     (amount uint))                                                                                                                                                                                                                                                                                                                                |
+|                                                                     | (buy-shares                                                                                                                                                                                                                                                                                                                                       |
+|                                                                     |     (market-id uint)                                                                                                                                                                                                                                                                                                                              |
+|                                                                     |     (side bool)                                                                                                                                                                                                                                                                                                                                   |
+|                                                                     |     (sbtc-in uint))                                                                                                                                                                                                                                                                                                                               |
+|                                                                     | (cancel-market (market-id uint))                                                                                                                                                                                                                                                                                                                  |
+|                                                                     | (create-market                                                                                                                                                                                                                                                                                                                                    |
+|                                                                     |     (question (string-utf8 256))                                                                                                                                                                                                                                                                                                                  |
+|                                                                     |     (resolution-block uint)                                                                                                                                                                                                                                                                                                                       |
+|                                                                     |     (feed-id (buff 32))                                                                                                                                                                                                                                                                                                                           |
+|                                                                     |     (threshold-price int)                                                                                                                                                                                                                                                                                                                         |
+|                                                                     |     (virtual-liquidity uint)                                                                                                                                                                                                                                                                                                                      |
+|                                                                     |     (fee-bps uint)                                                                                                                                                                                                                                                                                                                                |
+|                                                                     |     (comparison-type (string-utf8 2)))                                                                                                                                                                                                                                                                                                            |
+|                                                                     | (get-balance                                                                                                                                                                                                                                                                                                                                      |
+|                                                                     |     (market-id uint)                                                                                                                                                                                                                                                                                                                              |
+|                                                                     |     (user principal)                                                                                                                                                                                                                                                                                                                              |
+|                                                                     |     (side bool))                                                                                                                                                                                                                                                                                                                                  |
+|                                                                     | (get-burn-block-height)                                                                                                                                                                                                                                                                                                                           |
+|                                                                     | (get-contract-owner)                                                                                                                                                                                                                                                                                                                              |
+|                                                                     | (get-contract-principal)                                                                                                                                                                                                                                                                                                                          |
+|                                                                     | (get-market (market-id uint))                                                                                                                                                                                                                                                                                                                     |
+|                                                                     | (get-market-fees (market-id uint))                                                                                                                                                                                                                                                                                                                |
+|                                                                     | (get-protocol-treasury)                                                                                                                                                                                                                                                                                                                           |
+|                                                                     | (get-redemption-info (market-id uint))                                                                                                                                                                                                                                                                                                            |
+|                                                                     | (get-tax-recipient)                                                                                                                                                                                                                                                                                                                               |
+|                                                                     | (is-market-creator (who principal))                                                                                                                                                                                                                                                                                                               |
+|                                                                     | (mint-complete-set                                                                                                                                                                                                                                                                                                                                |
+|                                                                     |     (market-id uint)                                                                                                                                                                                                                                                                                                                              |
+|                                                                     |     (amount uint))                                                                                                                                                                                                                                                                                                                                |
+|                                                                     | (mock-resolve-market                                                                                                                                                                                                                                                                                                                              |
+|                                                                     |     (market-id uint)                                                                                                                                                                                                                                                                                                                              |
+|                                                                     |     (winner bool))                                                                                                                                                                                                                                                                                                                                |
+|                                                                     | (redeem-shares (market-id uint))                                                                                                                                                                                                                                                                                                                  |
+|                                                                     | (refund-shares (market-id uint))                                                                                                                                                                                                                                                                                                                  |
+|                                                                     | (remove-market-creator (creator principal))                                                                                                                                                                                                                                                                                                       |
+|                                                                     | (resolve-market                                                                                                                                                                                                                                                                                                                                   |
+|                                                                     |     (market-id uint)                                                                                                                                                                                                                                                                                                                              |
+|                                                                     |     (vaa (buff 8192))                                                                                                                                                                                                                                                                                                                             |
+|                                                                     |     (execution-plan (tuple (pyth-decoder-contract <ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pyth-traits-v2.decoder-trait>) (pyth-storage-contract <ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pyth-traits-v2.storage-trait>) (wormhole-core-contract <ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.wormhole-traits-v2.core-trait>))))                |
+|                                                                     | (sell-shares                                                                                                                                                                                                                                                                                                                                      |
+|                                                                     |     (market-id uint)                                                                                                                                                                                                                                                                                                                              |
+|                                                                     |     (side bool)                                                                                                                                                                                                                                                                                                                                   |
+|                                                                     |     (amount uint))                                                                                                                                                                                                                                                                                                                                |
+|                                                                     | (set-contract-owner (new-owner principal))                                                                                                                                                                                                                                                                                                        |
+|                                                                     | (set-protocol-treasury (new-treasury principal))                                                                                                                                                                                                                                                                                                  |
+|                                                                     | (set-tax-recipient (new-recipient principal))                                                                                                                                                                                                                                                                                                     |
+|                                                                     | (swap-shares                                                                                                                                                                                                                                                                                                                                      |
+|                                                                     |     (market-id uint)                                                                                                                                                                                                                                                                                                                              |
+|                                                                     |     (from-side bool)                                                                                                                                                                                                                                                                                                                              |
+|                                                                     |     (amount-in uint))                                                                                                                                                                                                                                                                                                                             |
+|---------------------------------------------------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sip-010-trait-ft-standard |                                                                                                                                                                                                                                                                                                                                                   |
+|---------------------------------------------------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.wormhole-traits-v2        |                                                                                                                                                                                                                                                                                                                                                   |
++---------------------------------------------------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
++-------------------------------------------+-------------------+-----------------+
+| Address                                   | .sbtc-token.sbtc  | uSTX            |
+|-------------------------------------------+-------------------+-----------------|
+| SP1WG62TA0D3K980WGSTZ0QA071TZD4ZXNKP0FQZ7 | 0                 | 500000          |
+|-------------------------------------------+-------------------+-----------------|
+| ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM | 10000000000000000 | 99999999500000  |
+|-------------------------------------------+-------------------+-----------------|
+| ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5 | 0                 | 100000000000000 |
+|-------------------------------------------+-------------------+-----------------|
+| ST2CY5V39NHDPWSXMW9QDT3HC3GD6Q6XX4CFRK9AG | 0                 | 100000000000000 |
+|-------------------------------------------+-------------------+-----------------|
+| ST2JHG361ZXG51QTKY2NQCVBPPRRE2KZB1HR05NNC | 0                 | 100000000000000 |
+|-------------------------------------------+-------------------+-----------------|
+| ST2NEB84ASENDXKYGJPQW86YXQCEFEX2ZQPG87ND  | 0                 | 100000000000000 |
+|-------------------------------------------+-------------------+-----------------|
+| ST2REHHS5J3CERCRBEPMGH7921Q6PYKAADT7JP2VB | 0                 | 100000000000000 |
+|-------------------------------------------+-------------------+-----------------|
+| ST3AM1A56AK2C1XAFJ4115ZSV26EB49BVQ10MGCS0 | 0                 | 100000000000000 |
+|-------------------------------------------+-------------------+-----------------|
+| ST3NBRSFKX28FQ2ZJ1MAKX58HKHSDGNV5N7R21XCP | 0                 | 100000000000000 |
+|-------------------------------------------+-------------------+-----------------|
+| ST3PF13W7Z0RRM42A8VZRVFQ75SV1K26RXEP8YGKJ | 0                 | 100000000000000 |
+|-------------------------------------------+-------------------+-----------------|
+| STNHKEPYEPJ8ET55ZZ0M5A34J0R3N5FM2CMMMAZ6  | 0                 | 100000000000000 |
++-------------------------------------------+-------------------+-----------------+
+none
+none
+none
+none
+none
+none
+Events emitted
+{"type":"ft_transfer_event","ft_transfer_event":{"asset_identifier":"ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sbtc-token::sbtc","sender":"ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM","recipient":"ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5","amount":"1000000000"}}
+(ok true)
+Events emitted
+{"type":"ft_transfer_event","ft_transfer_event":{"asset_identifier":"ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sbtc-token::sbtc","sender":"ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM","recipient":"ST2CY5V39NHDPWSXMW9QDT3HC3GD6Q6XX4CFRK9AG","amount":"1000000000"}}
+(ok true)
+Events emitted
+{"type":"ft_transfer_event","ft_transfer_event":{"asset_identifier":"ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sbtc-token::sbtc","sender":"ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM","recipient":"ST2JHG361ZXG51QTKY2NQCVBPPRRE2KZB1HR05NNC","amount":"1000000000"}}
+(ok true)
+none
+none
+none
+none
+none
+none
+none
+<stdin>:1:48: error: expecting expression of type '(string-utf8 256)', found '(string-ascii 15)'
+(contract-call? .sbtcmarket-v0 create-market   "AMM Test Market"   u1000000   0x0000000000000000000000000000000000000000000000000000000000000000   10000000000000   u10000000   u30   u"GE" )
+                                               ^~~~~~~~~~~~~~~~~
+none
+none
+(err u1000)
+none
+none
+none
+none
+none
+none
+tx-sender switched to ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5
+none
+none
+(err u1000)
+none
+none
+(err u1000)
+none
+none
+none
+(ok u0)
+none
+none
+none
+none
+none
+none
+tx-sender switched to ST2CY5V39NHDPWSXMW9QDT3HC3GD6Q6XX4CFRK9AG
+none
+none
+(err u1000)
+none
+none
+(err u1000)
+none
+none
+none
+(ok u0)
+none
+none
+none
+none
+none
+none
+tx-sender switched to ST2JHG361ZXG51QTKY2NQCVBPPRRE2KZB1HR05NNC
+none
+none
+(err u1000)
+none
+none
+(err u1000)
+none
+none
+none
+none
+none
+none
+tx-sender switched to ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5
+none
+none
+(err u1000)
+none
+none
+(err u1000)
+none
+none
+none
+(ok u0)
+(ok u0)
+none
+none
+none
+none
+none
+none
+none
+(err u1000)
+none
+none
+(err u1000)
+none
+none
+none
+(ok u0)
+(ok u0)
+none
+none
+none
+none
+none
+none
+none
+(err u1000)
+none
+none
+(err u1000)
+none
+none
+none
+none
+none
+none
+none
+(err u1000)
+none
+none
+none
+none
+none
+none
+none
+none
+none
+none
+none
+none
+none
+CTRL-D
+
+----------------------------
+Hint: what's next?
+Once you are ready to write your contracts, run the following commands:
+
+  $ clarinet contract new <contract-name>
+    Create new contract scaffolding, including test files.
+
+  $ clarinet check
+    Check contract syntax for all files in ./contracts.
+
+Find more information on writing contracts with Clarinet here: https://docs.hiro.so/clarinet/how-to-guides/how-to-set-up-local-development-environment#developing-a-clarity-smart-contract
+These hints can be disabled in the ~/.clarinet/clarinetrc.toml file.
+  $ mkdir -p ~/.clarinet; echo "enable_hints = false" >> ~/.clarinet/clarinetrc.toml
+----------------------------

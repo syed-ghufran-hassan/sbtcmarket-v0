@@ -1,0 +1,58 @@
+[project]
+name = 'sbtcmarketv0'
+description = ''
+authors = []
+telemetry = true
+cache_dir = './.cache'
+requirements = []
+[contracts.pyth-governance-v3]
+path = 'contracts/pyth-governance-v3.clar'
+clarity_version = 3
+epoch = 'latest'
+
+[contracts.pyth-oracle-v4]
+path = 'contracts/pyth-oracle-v4.clar'
+clarity_version = 3
+epoch = 'latest'
+
+[contracts.pyth-traits-v2]
+path = 'contracts/pyth-traits-v2.clar'
+clarity_version = 3
+epoch = 'latest'
+
+[contracts.sbtc-token]
+path = 'contracts/sbtc-token.clar'
+clarity_version = 3
+epoch = 'latest'
+
+[contracts.sbtcmarket-v0]
+path = 'contracts/sbtcmarket-v0.clar'
+clarity_version = 3
+epoch = 'latest'
+
+[contracts.sip-010-trait-ft-standard]
+path = 'contracts/sip-010-trait-ft-standard.clar'
+clarity_version = 3
+epoch = 'latest'
+
+[contracts.sample-bonding-curve-dex]
+path = 'contracts/sample-bonding-curve-dex.clar'
+clarity_version = 3
+epoch = 'latest'
+
+[contracts.wormhole-traits-v2]
+path = 'contracts/wormhole-traits-v2.clar'
+clarity_version = 3
+epoch = 'latest'
+[repl.analysis]
+passes = ['check_checker']
+
+[repl.analysis.check_checker]
+strict = false
+trusted_sender = false
+trusted_caller = false
+callee_filter = false
+
+[repl.remote_data]
+enabled = false
+api_url = 'https://api.hiro.so'

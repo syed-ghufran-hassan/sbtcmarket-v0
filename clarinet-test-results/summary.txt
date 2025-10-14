@@ -1,0 +1,58 @@
+sBTC Market Test Scenarios - Summary
+Generated: Mon Oct  6 14:54:17 +07 2025
+========================================
+
+Scenario: scenario1-yes-wins
+Status: PASSED
+
+Scenario: scenario10-refund-and-resolution-edge-cases
+Status: PASSED
+
+Scenario: scenario11-access-control-security
+Status: PASSED
+
+Scenario: scenario12-swap-mechanics
+Status: PASSED
+
+Scenario: scenario13-over-issuance-attacks
+Status: PASSED
+
+Scenario: scenario14-price-manipulation
+Status: PASSED
+
+Scenario: scenario15-integer-overflow-underflow
+Status: PASSED
+
+Scenario: scenario16-complete-state-transitions
+Status: PASSED
+
+Scenario: scenario17-market-creator-management
+Status: PASSED
+
+Scenario: scenario19-refund-proportional-payout
+Status: PASSED
+
+Scenario: scenario2-no-wins
+Status: PASSED
+
+Scenario: scenario3-edge-cases
+Status: PASSED
+
+Scenario: scenario4-amm-pricing
+Status: PASSED
+
+Scenario: scenario5-proportional-redemption
+Status: PASSED
+
+Scenario: scenario6-fee-collection
+Status: PASSED
+
+Scenario: scenario7-mass-redemption
+Status: PASSED
+
+Scenario: scenario8-redemption-edge-cases
+Status: PASSED
+
+Scenario: scenario9-two-user-redemption
+Status: PASSED
+

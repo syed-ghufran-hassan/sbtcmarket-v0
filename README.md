@@ -725,42 +725,7 @@ Contract cannot be paused if a critical bug is discovered. All funds remain at r
 
 ---
 
-### 📋 Recommendations
 
-#### Before Mainnet Deployment
-
-##### 🟠 HIGH (Strongly Recommended)
-1. **Add maximum fee validation (5% suggested)**
-   ```clarity
-   (define-constant MAX-FEE-BPS u500)
-   (try! (ensure (<= fee-bps MAX-FEE-BPS) ERR-INVALID-FEE))
-   ```
-
-2. **Add explicit underflow checks in burn-shares**
-   ```clarity
-   (try! (ensure (>= current-circ amount) ERR-INSUFFICIENT-BALANCE))
-   ```
-
-##### 🟡 MEDIUM (Recommended)
-3. **Add slippage protection parameters to buy/sell**
-   - `min-shares-out` for buys
-   - `min-sbtc-out` for sells
-
-4. **Add maximum virtual liquidity check**
-   ```clarity
-   (define-constant MAX-VIRTUAL-LIQUIDITY u100000000000)
-   ```
-
-5. **Add invariant validation to refund-shares**
-   ```clarity
-   (try! (validate-market-invariants updated-market))
-   ```
-
-##### 🔵 LOW (Nice to Have)
-6. **Consider timelock for treasury updates**
-7. **Consider emergency pause mechanism** (weigh centralization tradeoff)
-
----
 
 ### 🔒 Security Best Practices Applied
 
@@ -771,11 +736,6 @@ Contract cannot be paused if a critical bug is discovered. All funds remain at r
 ✅ **Event emissions** - All state changes emit events
 ✅ **Input validation** - Zero amounts, invalid params checked
 ✅ **Invariant validation** - Market state consistency enforced
-
-⚠️ **Needs improvement:**
-- Mock functions in production code
-- Missing slippage protection
-- Silent underflow in edge cases
 
 ---
 

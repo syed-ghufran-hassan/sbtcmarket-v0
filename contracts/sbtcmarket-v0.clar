@@ -111,9 +111,9 @@
     no-issued: uint,                     ;; Total NO shares from complete sets minted
     yes-circulating: uint,               ;; Total YES shares across ALL users (tracks swaps too)
     no-circulating: uint,                ;; Total NO shares across ALL users (tracks swaps too)
-    ;; Note: yes-issued/no-issued only track complete set minting, NOT swap activity
-    ;; yes-circulating/no-circulating track ALL shares including those from swaps
-    ;; Invariant: vault-sbtc = yes-issued = no-issued (only for complete set operations)
+    ;; yes-issued/no-issued count only complete-set mint/burn activity — they ignore swaps and post-resolution burns
+    ;; yes-circulating/no-circulating include every share minted or burned through swaps, redemptions, and refunds
+    ;; Complete-set flows keep vault-sbtc, yes-issued, and no-issued aligned; redemption/refund flows intentionally decouple them
     ;; Redemption uses circulating counts for proportional payouts
 
     ;; VIRTUAL RESERVES (Pricing mechanism - NOT backed by collateral)
@@ -138,7 +138,7 @@
 )
 
 ;; User balances: Tracks individual share ownership
-;; This is the REAL ownership ledger (backed 1:1 by sBTC in vault)
+;; Collateral originates from complete sets, but swaps can over-issue supply so totals may exceed vault-sbtc
 ;; Changed by:
 ;;   - mint-complete-set: increases both YES and NO for user
 ;;   - burn-complete-set: decreases both YES and NO for user
@@ -296,7 +296,7 @@
   )
 )
 
-;; Require market exists and is not resolved (can trade)
+;; Require market exists, is unresolved, and not cancelled (can trade)
 (define-private (require-market-open (market-id uint))
   (let ((market (try! (fetch-market market-id))))
     (try! (ensure-open market))
@@ -312,7 +312,7 @@
   )
 )
 
-;; Helper function to calculate tax amount
+;; Helper function to calculate tax amount (rounded down to nearest sat)
 (define-private (calculate-tax (amount uint))
   (/ (* amount TAX-RATE) FEE-DENOMINATOR)
 )
@@ -1241,7 +1241,7 @@
 ;; Strategy: "Mint + Swap" pattern (applied to net amount after tax)
 ;;   1. Deduct 1% tax from sbtc-in
 ;;   2. Mint complete set with net amount (get equal YES and NO)
-;;   3. Swap the unwanted side to get more of the desired side
+;;   3. Swap the unwanted side to get more of the desired side (AMM fee still applies)
 ;;
 ;; Example: buy-shares(side: true, sbtc-in: 100)
 ;;   Step 0: Tax deduction
@@ -1251,7 +1251,7 @@
 ;;     - Pay 99 sBTC (net amount)
 ;;     - Receive 99 YES + 99 NO
 ;;   Step 2: swap-shares(from-side: false, amount-in: 99)
-;;     - Swap 99 NO to ~120 YES (amount depends on AMM pricing)
+;;     - Swap 99 NO to ~120 YES (amount depends on AMM pricing and trading fee)
 ;;   Final result:
 ;;     - You have ~219 YES shares (99 from mint + 120 from swap)
 ;;     - You spent 100 sBTC total (99 to market + 1 tax)
@@ -1304,29 +1304,25 @@
 ;; Tax: 1% tax is deducted from the redeemed sBTC amount
 ;;
 ;; Strategy: "Swap + Burn" pattern
-;;   1. Swap shares from desired side to opposite side
-;;   2. Automatically burn any complete sets (matched YES+NO pairs) for sBTC
+;;   1. Swap shares from desired side to opposite side (swap fee still applies)
+;;   2. Burn any complete sets (matched YES+NO pairs) that remain after the swap
 ;;   3. Deduct 1% tax from the burn amount, send tax to tax-recipient
 ;;
-;; Example: sell-shares(side: true, amount: 100)
-;;   User has 100 YES, wants to exit
+;; Example: User holds 150 YES and 20 NO, calls sell-shares(side: true, amount: 100)
 ;;   Step 1: swap-shares(from-side: true, amount-in: 100)
-;;     - Swap 100 YES to ~82 NO (amount depends on AMM pricing)
-;;   Step 2: Check for complete sets
-;;     - After swap: might have 50 YES + 82 NO remaining
-;;     - Can burn min(50, 82) = 50 complete sets
+;;     - Burns 100 YES, mints ~82 NO (subject to AMM pricing and trading fee)
+;;     - User now has 50 YES and ~102 NO
+;;   Step 2: Burn matched sets
+;;     - burn-amount = min(50, 102) = 50 complete sets
 ;;   Step 3: Tax deduction
-;;     - Burn amount: 50 sBTC
 ;;     - 1% tax: 0.5 sBTC sent to tax-recipient
-;;     - Net amount: 49.5 sBTC to user
+;;     - Net withdrawal: 49.5 sBTC to user
 ;;   Final result:
-;;     - You have 0 YES + 32 NO remaining
-;;     - You received 49.5 sBTC (50 - 0.5 tax)
+;;     - Remaining position: 0 YES and ~52 NO
+;;     - User receives 49.5 sBTC and pays 0.5 sBTC tax
 ;;
-;; Why this works:
-;;   - AMM swap converts your position to opposite side
-;;   - Any matched pairs automatically redeem 1:1 for sBTC (before tax)
-;;   - Maximizes sBTC returned while minimizing leftover shares
+;; If the swap leaves no matched pairs (e.g., you sell your entire YES stack),
+;; the function skips burning and simply leaves you holding the swapped side.
 (define-public (sell-shares
     (market-id uint)
     (side bool)          ;; true = sell YES, false = sell NO

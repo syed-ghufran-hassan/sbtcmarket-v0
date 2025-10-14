@@ -11,3 +11,5 @@ coverage
 *.info
 costs-reports.json
 node_modules
+
+Clarity_docs_summary.md

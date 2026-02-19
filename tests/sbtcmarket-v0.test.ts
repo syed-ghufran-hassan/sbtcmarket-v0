@@ -7,6 +7,7 @@ import {
   expectBool,
   unwrapOkUint,
   unwrapErrUint,
+  unwrapSome,
 } from "./helpers/assertions";
 
 const accounts = simnet.getAccounts();
@@ -63,7 +64,14 @@ function unwrapOkTuple(response: any) {
   return value.value;
 }
 
+function advanceBlocks(blocks: number) {
+  for (let i = 0; i < blocks; i++) {
+    simnet.mineEmptyBlock();
+  }
+}
+
 describe("sBTC Market v0 - Contract Tests", () => {
+  // ======= EXISTING TESTS =======
 
   describe("create-market", () => {
     it("successfully creates a new market", () => {
@@ -512,7 +520,6 @@ describe("sBTC Market v0 - Contract Tests", () => {
         [Cl.uint(1)],
         wallet1
       );
-      // Circulating counts should reflect the swap
       const marketData = unwrapOkTuple(market.result);
       const yesCirculating = expectUint(marketData["yes-circulating"]);
       const noCirculating = expectUint(marketData["no-circulating"]);
@@ -633,6 +640,414 @@ describe("sBTC Market v0 - Contract Tests", () => {
         wallet1
       );
       expect(unwrapOkUint(result.result) > 0n).toBe(true);
+    });
+  });
+
+  // ======= NEW TWAP ENHANCEMENT TESTS =======
+
+  describe("TWAP - Time-Weighted Average Price", () => {
+    const OBSERVATION_FREQUENCY = 100;
+    const TWAP_WINDOW = 500;
+
+    beforeEach(() => {
+      // Create market with deployer (who will enable TWAP)
+      createTestMarket();
+      mintSbtc(wallet1, 1000000000); // 10 sBTC for trading
+      mintSbtc(wallet2, 1000000000);
+    });
+
+    describe("enable-twap", () => {
+      it("enables TWAP for a market before any trading", () => {
+        const result = simnet.callPublicFn(
+          "sbtcmarket-v0",
+          "enable-twap",
+          [Cl.uint(1), Cl.uint(OBSERVATION_FREQUENCY), Cl.uint(TWAP_WINDOW)],
+          deployer
+        );
+        expect(result.result.type).toBe("ok");
+
+        // Verify config was set
+        const config = simnet.callReadOnlyFn(
+          "sbtcmarket-v0",
+          "get-twap-config",
+          [Cl.uint(1)],
+          deployer
+        );
+        const configTuple = unwrapSome(config.result);
+        expectBool(configTuple.enabled, true);
+        expectUint(configTuple["observation-frequency"], OBSERVATION_FREQUENCY);
+        expectUint(configTuple["observation-count"], 1n); // Initial observation taken
+      });
+
+      it("fails if not called by market creator", () => {
+        const result = simnet.callPublicFn(
+          "sbtcmarket-v0",
+          "enable-twap",
+          [Cl.uint(1), Cl.uint(OBSERVATION_FREQUENCY), Cl.uint(TWAP_WINDOW)],
+          wallet1 // Not creator
+        );
+        expect(unwrapErrUint(result.result)).toBe(1010n); // ERR-UNAUTHORIZED
+      });
+
+      it("fails if TWAP window is too small", () => {
+        const result = simnet.callPublicFn(
+          "sbtcmarket-v0",
+          "enable-twap",
+          [Cl.uint(1), Cl.uint(OBSERVATION_FREQUENCY), Cl.uint(50)], // Window < frequency
+          deployer
+        );
+        expect(unwrapErrUint(result.result)).toBe(1102n); // ERR-TWAP-WINDOW-TOO-SMALL
+      });
+
+      it("fails if market already has trades", () => {
+        // Make a trade first
+        simnet.callPublicFn(
+          "sbtcmarket-v0",
+          "buy-shares",
+          [Cl.uint(1), Cl.bool(true), Cl.uint(10000)],
+          wallet1
+        );
+
+        // Try to enable TWAP
+        const result = simnet.callPublicFn(
+          "sbtcmarket-v0",
+          "enable-twap",
+          [Cl.uint(1), Cl.uint(OBSERVATION_FREQUENCY), Cl.uint(TWAP_WINDOW)],
+          deployer
+        );
+        expect(unwrapErrUint(result.result)).toBe(1014n); // ERR-TOO-LATE
+      });
+    });
+
+    describe("take-twap-observation", () => {
+      beforeEach(() => {
+        // Enable TWAP first
+        simnet.callPublicFn(
+          "sbtcmarket-v0",
+          "enable-twap",
+          [Cl.uint(1), Cl.uint(OBSERVATION_FREQUENCY), Cl.uint(TWAP_WINDOW)],
+          deployer
+        );
+
+        // Add some trades to create price movement
+        simnet.callPublicFn(
+          "sbtcmarket-v0",
+          "buy-shares",
+          [Cl.uint(1), Cl.bool(true), Cl.uint(50000)],
+          wallet1
+        );
+      });
+
+      it("anyone can take observations after enough blocks", () => {
+        // Advance blocks to pass observation frequency
+        advanceBlocks(OBSERVATION_FREQUENCY + 10);
+
+        const result = simnet.callPublicFn(
+          "sbtcmarket-v0",
+          "take-twap-observation",
+          [Cl.uint(1)],
+          wallet2 // Different user
+        );
+        expect(result.result.type).toBe("ok");
+
+        // Verify observation was recorded
+        const config = simnet.callReadOnlyFn(
+          "sbtcmarket-v0",
+          "get-twap-config",
+          [Cl.uint(1)],
+          deployer
+        );
+        const configTuple = unwrapSome(config.result);
+        expectUint(configTuple["observation-count"], 2n); // Should have 2 observations now
+      });
+
+      it("returns false if not enough blocks passed", () => {
+        // Try to observe immediately
+        const result = simnet.callPublicFn(
+          "sbtcmarket-v0",
+          "take-twap-observation",
+          [Cl.uint(1)],
+          wallet1
+        );
+        expect(result.result.type).toBe("ok");
+        expect(result.result.value).toBe(false); // Should return false (no observation taken)
+      });
+
+      it("fails if TWAP not enabled", () => {
+        const result = simnet.callPublicFn(
+          "sbtcmarket-v0",
+          "take-twap-observation",
+          [Cl.uint(2)], // Market without TWAP
+          wallet1
+        );
+        expect(unwrapErrUint(result.result)).toBe(1100n); // ERR-TWAP-NOT-ENABLED
+      });
+    });
+
+    describe("calculate-twap", () => {
+      beforeEach(() => {
+        // Enable TWAP
+        simnet.callPublicFn(
+          "sbtcmarket-v0",
+          "enable-twap",
+          [Cl.uint(1), Cl.uint(50), Cl.uint(200)], // Smaller values for test
+          deployer
+        );
+
+        // Create price movement through trades
+        simnet.callPublicFn(
+          "sbtcmarket-v0",
+          "buy-shares",
+          [Cl.uint(1), Cl.bool(true), Cl.uint(100000)],
+          wallet1
+        );
+
+        // Take first observation
+        advanceBlocks(60);
+        simnet.callPublicFn(
+          "sbtcmarket-v0",
+          "take-twap-observation",
+          [Cl.uint(1)],
+          wallet1
+        );
+
+        // More trades to move price
+        simnet.callPublicFn(
+          "sbtcmarket-v0",
+          "buy-shares",
+          [Cl.uint(1), Cl.bool(false), Cl.uint(80000)],
+          wallet2
+        );
+
+        // Take second observation
+        advanceBlocks(60);
+        simnet.callPublicFn(
+          "sbtcmarket-v0",
+          "take-twap-observation",
+          [Cl.uint(1)],
+          wallet1
+        );
+      });
+
+      it("calculates TWAP over specified window", () => {
+        const startBlock = 100; // Mock start block
+        const endBlock = 200;   // Mock end block
+
+        const result = simnet.callReadOnlyFn(
+          "sbtcmarket-v0",
+          "calculate-twap",
+          [Cl.uint(1), Cl.uint(startBlock), Cl.uint(endBlock)],
+          deployer
+        );
+        const twap = unwrapOkTuple(result.result);
+        expectUint(twap["twap-yes"]);
+        expectUint(twap["twap-no"]);
+        expectUint(twap["window-blocks"], endBlock - startBlock);
+      });
+
+      it("fails if insufficient observations", () => {
+        const result = simnet.callReadOnlyFn(
+          "sbtcmarket-v0",
+          "calculate-twap",
+          [Cl.uint(1), Cl.uint(1), Cl.uint(1000)], // Window with no observations
+          deployer
+        );
+        expect(unwrapErrUint(result.result)).toBe(1101n); // ERR-TWAP-INSUFFICIENT-OBS
+      });
+    });
+
+    describe("get-current-twap", () => {
+      beforeEach(() => {
+        simnet.callPublicFn(
+          "sbtcmarket-v0",
+          "enable-twap",
+          [Cl.uint(1), Cl.uint(50), Cl.uint(200)],
+          deployer
+        );
+      });
+
+      it("returns current TWAP for specified window", () => {
+        const result = simnet.callReadOnlyFn(
+          "sbtcmarket-v0",
+          "get-current-twap",
+          [Cl.uint(1), Cl.uint(100)],
+          deployer
+        );
+        expect(result.result.type).toBe("ok");
+      });
+
+      it("fails if window too large (before market start)", () => {
+        const result = simnet.callReadOnlyFn(
+          "sbtcmarket-v0",
+          "get-current-twap",
+          [Cl.uint(1), Cl.uint(1000000)], // Huge window
+          deployer
+        );
+        expect(unwrapErrUint(result.result)).toBe(1103n); // ERR-TWAP-WINDOW-TOO-LARGE
+      });
+    });
+
+    describe("keeper incentives", () => {
+      beforeEach(() => {
+        // Enable TWAP
+        simnet.callPublicFn(
+          "sbtcmarket-v0",
+          "enable-twap",
+          [Cl.uint(1), Cl.uint(50), Cl.uint(200)],
+          deployer
+        );
+
+        // Fund keeper pool
+        mintSbtc(deployer, 1000000);
+        simnet.callPublicFn(
+          "sbtcmarket-v0",
+          "fund-keeper-pool",
+          [Cl.uint(1000000)],
+          deployer
+        );
+      });
+
+      it("pays reward to keeper for taking observation", () => {
+        advanceBlocks(60);
+
+        const keeperBalanceBefore = simnet.callReadOnlyFn(
+          "sbtc-token",
+          "get-balance",
+          [Cl.principal(wallet1)],
+          wallet1
+        );
+
+        const result = simnet.callPublicFn(
+          "sbtcmarket-v0",
+          "take-twap-observation-with-reward",
+          [Cl.uint(1)],
+          wallet1
+        );
+        expect(result.result.type).toBe("ok");
+
+        const keeperBalanceAfter = simnet.callReadOnlyFn(
+          "sbtc-token",
+          "get-balance",
+          [Cl.principal(wallet1)],
+          wallet1
+        );
+        expect(unwrapOkUint(keeperBalanceAfter.result) > unwrapOkUint(keeperBalanceBefore.result)).toBe(true);
+      });
+
+      it("doesn't pay reward if pool is empty", () => {
+        advanceBlocks(60);
+
+        const keeperBalanceBefore = simnet.callReadOnlyFn(
+          "sbtc-token",
+          "get-balance",
+          [Cl.principal(wallet2)],
+          wallet2
+        );
+
+        const result = simnet.callPublicFn(
+          "sbtcmarket-v0",
+          "take-twap-observation-with-reward",
+          [Cl.uint(1)],
+          wallet2
+        );
+        expect(result.result.type).toBe("ok");
+
+        const keeperBalanceAfter = simnet.callReadOnlyFn(
+          "sbtc-token",
+          "get-balance",
+          [Cl.principal(wallet2)],
+          wallet2
+        );
+        expect(unwrapOkUint(keeperBalanceAfter.result)).toBe(unwrapOkUint(keeperBalanceBefore.result));
+      });
+    });
+
+    describe("get-twap-observation", () => {
+      beforeEach(() => {
+        simnet.callPublicFn(
+          "sbtcmarket-v0",
+          "enable-twap",
+          [Cl.uint(1), Cl.uint(50), Cl.uint(200)],
+          deployer
+        );
+      });
+
+      it("returns observation at specific index", () => {
+        // Take first observation
+        advanceBlocks(60);
+        simnet.callPublicFn(
+          "sbtcmarket-v0",
+          "take-twap-observation",
+          [Cl.uint(1)],
+          wallet1
+        );
+
+        const result = simnet.callReadOnlyFn(
+          "sbtcmarket-v0",
+          "get-twap-observation",
+          [Cl.uint(1), Cl.uint(0)],
+          deployer
+        );
+        const observation = unwrapSome(result.result);
+        expectUint(observation["price-yes"]);
+        expectUint(observation["price-no"]);
+        expectUint(observation["accumulator-yes"]);
+      });
+
+      it("returns none for non-existent index", () => {
+        const result = simnet.callReadOnlyFn(
+          "sbtcmarket-v0",
+          "get-twap-observation",
+          [Cl.uint(1), Cl.uint(999)],
+          deployer
+        );
+        expect(result.result.type).toBe("none");
+      });
+    });
+
+    describe("get-twap-observation-count", () => {
+      it("returns correct observation count", () => {
+        simnet.callPublicFn(
+          "sbtcmarket-v0",
+          "enable-twap",
+          [Cl.uint(1), Cl.uint(50), Cl.uint(200)],
+          deployer
+        );
+
+        const count1 = simnet.callReadOnlyFn(
+          "sbtcmarket-v0",
+          "get-twap-observation-count",
+          [Cl.uint(1)],
+          deployer
+        );
+        expectUint(unwrapOk(count1.result), 1n); // Initial observation
+
+        advanceBlocks(60);
+        simnet.callPublicFn(
+          "sbtcmarket-v0",
+          "take-twap-observation",
+          [Cl.uint(1)],
+          wallet1
+        );
+
+        const count2 = simnet.callReadOnlyFn(
+          "sbtcmarket-v0",
+          "get-twap-observation-count",
+          [Cl.uint(1)],
+          deployer
+        );
+        expectUint(unwrapOk(count2.result), 2n);
+      });
+
+      it("fails if TWAP not enabled", () => {
+        const result = simnet.callReadOnlyFn(
+          "sbtcmarket-v0",
+          "get-twap-observation-count",
+          [Cl.uint(2)],
+          deployer
+        );
+        expect(unwrapErrUint(result.result)).toBe(1100n); // ERR-TWAP-NOT-ENABLED
+      });
     });
   });
 });
